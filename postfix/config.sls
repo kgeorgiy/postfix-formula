@@ -11,7 +11,9 @@ include:
 
 /etc/postfix/main.cf:
   file.managed:
-    - source: salt://postfix/files/main.cf
+    - source:
+      - salt://postfix/files/main.cf
+      - salt://postfix/map.jinja  # make available to salt-ssh
     - user: root
     - group: root
     - mode: 644
