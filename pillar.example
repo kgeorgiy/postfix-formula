@@ -1,17 +1,84 @@
+# -*- coding: utf-8 -*-
+# vim: ft=yaml
+---
 postfix:
-  manage_master_config: True
+  manage_master_config: true
   master_config:
-    enable_submission: False
+    # Preferred way of managing services/processes. This allows for finegrained
+    # control over each service. See postfix/services.yaml for defaults that can
+    # be overridden.
+    services:
+      smtp:
+        # Limit to no more than 10 smtp processes
+        maxproc: 10
+      # Enable oldstyle TLS wrapped SMTP
+      smtps:
+        enable: true
+      # Enable submission service on port 587/tcp with custom options
+      submission:
+        enable: true
+        args:
+          - "-o smtpd_tls_security_level=encrypt"
+          - "-o smtpd_sasl_auth_enable=yes"
+          - "-o smtpd_client_restrictions: permit_sasl_authenticated,reject"
+      tlsproxy:
+        enable: true
+        chroot: true
+      uucp:
+        enable: true
+      # Dovecot delivery via deliver binary. For better performance, investigate
+      # using LMTP instead: <https://wiki.dovecot.org/LMTP>
+      dovecot:
+        chroot: false
+        command: pipe
+        enable: true
+        extras: '-d ${recipient}'
+        flags: DRhu
+        type: unix
+        unpriv: false
+        user: vmail:vmail
+        argv: /usr/lib/dovecot/deliver
+      # Completely customized mail-delivery-agent entry. Will be appended to the
+      # master.cf file
+      custom-mda:
+        argv: /usr/local/sbin/mail-handler.py
+        command: pipe
+        extras: --rcpt ${recipient}
+        flags: DRhu
+        user: mail
+        # Wrap the output in master.cf at 78 chars for better readability
+        wrap: true
+        # Avoid user and arvg settings to allow define internal processes
+        # needed for randomizing relay IP (randmap functionality)
+        no_args: true
 
-  enable_service: True
+    # Backwards compatible definition of dovecot delivery in master.cf
+    enable_dovecot: false
+    # The following are the default values:
+    dovecot:
+      user: vmail
+      group: vmail
+      flags: DRhu
+      argv: "/usr/lib/dovecot/deliver"
+
+    # Backwards compatible definition of submission listener in master.cf
+    enable_submission: false
+    # To replace the defaults use this:
+    submission:
+      smtpd_tls_security_level: encrypt
+      smtpd_sasl_auth_enable: 'yes'
+      smtpd_client_restrictions: permit_sasl_authenticated,reject
+
+  enable_service: true
+  reload_service: true
 
   postgrey:
-    enabled: True
-    enable_service: True
+    enabled: true
+    enable_service: true
     location: inet:172.16.0.5:6379
 
   policyd-spf:
-    enabled: True
+    enabled: true
     time_limit: 7200s
 
   config:
@@ -22,13 +89,14 @@ postfix:
     readme_directory: 'no'
     myhostname: localhost
     mydestination: localhost, localhost.localdomain
-    relayhost: 
+    relayhost: ''
     mynetworks: 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
     mailbox_size_limit: 0
     recipient_delimiter: +
     inet_interfaces: all
+    inet_protocols: all
 
-    #postsrsd:
+    # postsrsd:
     sender_canonical_maps: tcp:127.0.0.1:10001
     sender_canonical_classes: envelope_sender
     recipient_canonical_maps: tcp:127.0.0.1:10002
@@ -36,6 +104,9 @@ postfix:
 
     # Alias
     alias_maps: hash:/etc/aliases
+    # This is the list of files for the newaliases
+    # cmd to process (see postconf(5) for details).
+    # Only local hash/btree/dbm files:
     alias_database: hash:/etc/aliases
 
     # Virtual users
@@ -59,8 +130,14 @@ postfix:
     smtpd_sasl_auth_enable: 'yes'
     smtpd_sasl_type: dovecot
     smtpd_sasl_path: /var/run/dovecot/auth-client
-    smtpd_recipient_restrictions: permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
-    smtpd_relay_restrictions: permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination
+    smtpd_recipient_restrictions: >-
+      permit_mynetworks,
+      permit_sasl_authenticated,
+      reject_unauth_destination
+    smtpd_relay_restrictions: >-
+      permit_mynetworks,
+      permit_sasl_authenticated,
+      reject_unauth_destination
     smtpd_sasl_security_options: noanonymous
     smtpd_sasl_tls_security_options: $smtpd_sasl_security_options
     smtpd_tls_auth_only: 'yes'
@@ -93,6 +170,36 @@ postfix:
     password: DB_PASSWD
     hosts: DB_HOST
     dbname: postfix_db
+
+  # add mysql query to virtual
+  mysql:
+    virtual_mailbox_domains:
+      table: virtual_domains
+      select_field: 1
+      where_field: name
+    virtual_alias_maps:
+      table: virtual_aliases
+      select_field: destination
+      where_field: email
+    virtual_mailbox_maps:
+      table: virtual_users
+      select_field: 1
+      where_field: email
+
+  aliases:
+    # manage single aliases
+    # this uses the aliases file defined in the minion config, /etc/aliases by default
+    use_file: false
+    present:
+      root: info@example.com
+    absent:
+      - root
+
+    # manage entire aliases file
+    use_file: true
+    content: |
+      # Forward all local *nix users mail to our admins (via greedy regexp)
+      /.+/    admins@example.com
 
   certificates:
     server-cert:
@@ -134,6 +241,27 @@ postfix:
 
     virtual_alias_maps:
       - groupaliasexample:
-        - someuser_1@example.com
-        - someuser_2@example.com
+          - someuser_1@example.com
+          - someuser_2@example.com
       - singlealiasexample: someuser_3@example.com
+
+
+###
+#
+# Multiple virtual_alias_maps entries:
+#
+# You are free to define alternative mapping names
+# and use them as 'variables' in your Postfix config:
+# (Credit for the idea and the example goes to @roskens.)
+
+postfix:
+  config:
+    virtual_alias_maps: $virtual_alias_1_maps $virtual_alias_2_maps
+    virtual_alias_1_maps: hash:/etc/postfix/virtual
+    virtual_alias_2_maps: pcre:/etc/postfix/virtual.pcre
+  mapping:
+    virtual_alias_1_maps:
+      root:
+        - me
+    virtual_alias_2_maps:
+      - '/(\S+)_(devel|preprod|prod)@sub.example.com$/': '$(1)@$(2).sub.example.com'

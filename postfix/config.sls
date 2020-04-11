@@ -1,21 +1,22 @@
+{% from "postfix/map.jinja" import postfix with context %}
 include:
   - postfix
 
-/etc/postfix:
+{{ postfix.config_path }}:
   file.directory:
     - user: root
-    - group: root
+    - group: {{ postfix.root_grp }}
     - dir_mode: 755
     - file_mode: 644
     - makedirs: True
 
-/etc/postfix/main.cf:
+{{ postfix.config_path }}/main.cf:
   file.managed:
     - source:
       - salt://postfix/files/main.cf
       - salt://postfix/map.jinja  # make available to salt-ssh
     - user: root
-    - group: root
+    - group: {{ postfix.root_grp }}
     - mode: 644
     - require:
       - pkg: postfix
@@ -24,7 +25,7 @@ include:
     - template: jinja
 
 {% if 'vmail' in pillar.get('postfix', '') %}
-/etc/postfix/virtual_alias_maps.cf:
+{{ postfix.config_path }}/virtual_alias_maps.cf:
   file.managed:
     - source: salt://postfix/files/virtual_alias_maps.cf
     - user: root
@@ -36,7 +37,7 @@ include:
       - service: postfix
     - template: jinja
 
-/etc/postfix/virtual_mailbox_domains.cf:
+{{ postfix.config_path }}/virtual_mailbox_domains.cf:
   file.managed:
     - source: salt://postfix/files/virtual_mailbox_domains.cf
     - user: root
@@ -48,7 +49,7 @@ include:
       - service: postfix
     - template: jinja
 
-/etc/postfix/virtual_mailbox_maps.cf:
+{{ postfix.config_path }}/virtual_mailbox_maps.cf:
   file.managed:
     - source: salt://postfix/files/virtual_mailbox_maps.cf
     - user: root
@@ -62,11 +63,11 @@ include:
 {% endif %}
 
 {% if salt['pillar.get']('postfix:manage_master_config', True) %}
-/etc/postfix/master.cf:
+{{ postfix.config_path }}/master.cf:
   file.managed:
     - source: salt://postfix/files/master.cf
     - user: root
-    - group: root
+    - group: {{ postfix.root_grp }}
     - mode: 644
     - require:
       - pkg: postfix
@@ -76,11 +77,11 @@ include:
 {% endif %}
 
 {% if 'transport' in pillar.get('postfix', '') %}
-/etc/postfix/transport:
+{{ postfix.config_path }}/transport:
   file.managed:
     - source: salt://postfix/files/transport
     - user: root
-    - group: root
+    - group: {{ postfix.root_grp }}
     - mode: 644
     - require:
       - pkg: postfix
@@ -90,10 +91,10 @@ include:
 
 run-postmap:
   cmd.wait:
-    - name: /usr/sbin/postmap /etc/postfix/transport
+    - name: {{ postfix.xbin_prefix }}/sbin/postmap {{ postfix.config_path }}/transport
     - cwd: /
     - watch:
-      - file: /etc/postfix/transport
+      - file: {{ postfix.config_path }}/transport
 {% endif %}
 
 {%- for domain in salt['pillar.get']('postfix:certificates', {}).keys() %}
@@ -101,7 +102,7 @@ run-postmap:
 postfix_{{ domain }}_ssl_certificate:
 
   file.managed:
-    - name: /etc/postfix/ssl/{{ domain }}.crt
+    - name: {{ postfix.config_path }}/ssl/{{ domain }}.crt
     - makedirs: True
     - contents_pillar: postfix:certificates:{{ domain }}:public_cert
     - watch_in:
@@ -109,7 +110,7 @@ postfix_{{ domain }}_ssl_certificate:
 
 postfix_{{ domain }}_ssl_key:
   file.managed:
-    - name: /etc/postfix/ssl/{{ domain }}.key
+    - name: {{ postfix.config_path }}/ssl/{{ domain }}.key
     - mode: 600
     - makedirs: True
     - contents_pillar: postfix:certificates:{{ domain }}:private_key
