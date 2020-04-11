@@ -14,7 +14,10 @@ include:
   file.managed:
     - source:
       - salt://postfix/files/main.cf
-      - salt://postfix/map.jinja  # make available to salt-ssh
+      # make available to salt-ssh
+      - salt://postfix/map.jinja
+      - salt://postfix/defaults.yaml
+      - salt://postfix/osfamilymap.yaml
     - user: root
     - group: {{ postfix.root_grp }}
     - mode: 644
@@ -65,7 +68,10 @@ include:
 {% if salt['pillar.get']('postfix:manage_master_config', True) %}
 {{ postfix.config_path }}/master.cf:
   file.managed:
-    - source: salt://postfix/files/master.cf
+    - source:
+      - salt://postfix/files/master.cf
+      # make available to salt-ssh
+      - salt://postfix/services.yaml
     - user: root
     - group: {{ postfix.root_grp }}
     - mode: 644
